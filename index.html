@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#eeeeec">
+  <title>Flipbook</title>
+
+  <link rel="stylesheet" href="./css/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+  <script type="module" src="./js/app.js"></script>
+</head>
+<body>
+  <main class="app">
+    <header class="toolbar">
+      <div class="book-info">
+        <h1 id="book-title">Flipbook</h1>
+        <span id="status-text" class="status-text">Preparando…</span>
+      </div>
+
+      <div class="toolbar-actions" aria-label="Controles do livro">
+        <button id="prev-button" class="icon-button" type="button" aria-label="Página anterior" title="Página anterior">
+          <span aria-hidden="true">←</span>
+        </button>
+
+        <span id="page-counter" class="page-counter" aria-live="polite">— / —</span>
+
+        <button id="next-button" class="icon-button" type="button" aria-label="Próxima página" title="Próxima página">
+          <span aria-hidden="true">→</span>
+        </button>
+
+        <button id="fullscreen-button" class="text-button" type="button">
+          Tela cheia
+        </button>
+      </div>
+    </header>
+
+    <section id="viewer" class="viewer" aria-label="Leitor de PDF">
+      <div id="loading" class="loading" role="status" aria-live="polite">
+        <div class="loading-line">
+          <span id="loading-label">Carregando PDF…</span>
+          <span id="loading-percent">0%</span>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+          <div id="progress-bar" class="progress-bar"></div>
+        </div>
+      </div>
+
+      <div id="book" class="book" hidden></div>
+
+      <div id="error-panel" class="error-panel" hidden>
+        <h2>Não foi possível abrir o livro.</h2>
+        <p id="error-message"></p>
+        <p class="error-hint">
+          Confirme se o PDF está dentro da pasta <code>books/</code> e se o nome usado em
+          <code>?book=arquivo.pdf</code> está correto.
+        </p>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>Arraste o canto da página, deslize no celular ou use as setas do teclado.</span>
+    </footer>
+  </main>
+</body>
+</html>
