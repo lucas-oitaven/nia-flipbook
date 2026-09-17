@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#161614">
+  <title>Shelf</title>
+
+  <script>
+    (function () {
+      var theme = localStorage.getItem("flipbook-theme") === "light" ? "light" : "dark";
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.colorScheme = theme;
+    })();
+  </script>
+  <link rel="stylesheet" href="./css/style.css">
+  <script type="module" src="./js/shelf.js"></script>
+</head>
+<body>
+  <main class="app">
+    <header class="toolbar">
+      <div class="book-info">
+        <h1 id="page-title">Shelf</h1>
+        <label class="language-picker" for="language-select">
+          <span class="visually-hidden" data-i18n="language">Language</span>
+          <select id="language-select" aria-label="Language">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+          </select>
+        </label>
+        <span id="status-text" class="status-text"></span>
+      </div>
+
+      <div class="toolbar-actions">
+        <button id="theme-button" class="icon-button" type="button" aria-label="Light mode" title="Light mode">
+          ☀
+        </button>
+      </div>
+    </header>
+
+    <section class="shelf" aria-live="polite">
+      <p id="shelf-lead" class="shelf-lead"></p>
+      <ul id="shelf-list" class="shelf-list"></ul>
+    </section>
+  </main>
+</body>
+</html>

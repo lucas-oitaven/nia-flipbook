@@ -1,4 +1,5 @@
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs";
+import { initThemeToggle } from "./theme.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs";
@@ -13,6 +14,7 @@ const elements = {
   loadingPercent: document.querySelector("#loading-percent"),
   progressBar: document.querySelector("#progress-bar"),
   errorPanel: document.querySelector("#error-panel"),
+  errorTitle: document.querySelector("#error-title"),
   errorMessage: document.querySelector("#error-message"),
   errorHint: document.querySelector("#error-hint"),
   firstButton: document.querySelector("#first-button"),
@@ -21,15 +23,16 @@ const elements = {
   lastButton: document.querySelector("#last-button"),
   fullscreenButton: document.querySelector("#fullscreen-button"),
   pageCounter: document.querySelector("#page-counter"),
-  bookSelect: document.querySelector("#book-select"),
   languageSelect: document.querySelector("#language-select"),
+  themeButton: document.querySelector("#theme-button"),
 };
 
 const translations = {
   en: {
-    selectBook: "Select book",
     language: "Language",
     bookControls: "Book controls",
+    darkMode: "Dark mode",
+    lightMode: "Light mode",
     firstPage: "First page",
     previousPage: "Previous page",
     nextPage: "Next page",
@@ -51,12 +54,15 @@ const translations = {
     missingFile: (name) => `The file "${name}" was not found.`,
     invalidPdf: "The file found does not appear to be a valid PDF.",
     invalidBookName: 'Invalid book name. Use only the PDF filename, for example "?book=my-book.pdf".',
-    missingBookList: "Book list unavailable",
+    missingBook: "Nothing to display.",
+    missingBookTitle: "No publication selected.",
+    missingBookHint: "Open the specific link you received to view this publication.",
   },
   es: {
-    selectBook: "Seleccionar libro",
     language: "Idioma",
     bookControls: "Controles del libro",
+    darkMode: "Modo oscuro",
+    lightMode: "Modo claro",
     firstPage: "Primera página",
     previousPage: "Página anterior",
     nextPage: "Página siguiente",
@@ -78,7 +84,9 @@ const translations = {
     missingFile: (name) => `No se encontró el archivo "${name}".`,
     invalidPdf: "El archivo encontrado no parece ser un PDF válido.",
     invalidBookName: 'Nombre de libro inválido. Usa solo el nombre del PDF, por ejemplo "?book=mi-libro.pdf".',
-    missingBookList: "Lista de libros no disponible",
+    missingBook: "No hay nada para mostrar.",
+    missingBookTitle: "Ninguna publicación seleccionada.",
+    missingBookHint: "Abre el enlace específico que recibiste para ver esta publicación.",
   },
 };
 
@@ -101,10 +109,10 @@ function applyLanguage() {
     element.setAttribute(attribute, t(key));
   });
   elements.loadingLabel.textContent = t("preparing");
-  elements.statusText.textContent = totalRealPages ? t("pages", totalRealPages) : t("preparing");
-  elements.errorHint.innerHTML = t("errorHint");
-  elements.bookSelect.setAttribute("aria-label", t("selectBook"));
+  elements.errorTitle.textContent = currentHintKey === "missingBookHint" ? t("missingBookTitle") : t("openBookError");
+  elements.errorHint.innerHTML = currentHintKey === "missingBookHint" ? t("missingBookHint") : t("errorHint");
   elements.languageSelect.setAttribute("aria-label", t("language"));
+  syncThemeButton();
   elements.firstButton.setAttribute("aria-label", t("firstPage"));
   elements.firstButton.title = t("firstPage");
   elements.prevButton.setAttribute("aria-label", t("previousPage"));
@@ -114,7 +122,15 @@ function applyLanguage() {
   elements.lastButton.setAttribute("aria-label", t("lastPage"));
   elements.lastButton.title = t("lastPage");
   elements.fullscreenButton.textContent = document.fullscreenElement ? t("exitFullscreen") : t("fullscreen");
-  if (totalRealPages) elements.statusText.textContent = t("pages", totalRealPages);
+  if (totalRealPages) {
+    elements.statusText.textContent = t("pages", totalRealPages);
+  } else if (!elements.errorPanel.hidden && currentHintKey === "missingBookHint") {
+    elements.statusText.textContent = "";
+  } else if (!elements.errorPanel.hidden) {
+    elements.statusText.textContent = t("error");
+  } else {
+    elements.statusText.textContent = t("preparing");
+  }
 }
 
 elements.languageSelect.addEventListener("change", (event) => {
@@ -126,75 +142,56 @@ elements.languageSelect.addEventListener("change", (event) => {
   applyLanguage();
 });
 
+const syncThemeButton = initThemeToggle(elements.themeButton, () => ({
+  dark: t("darkMode"),
+  light: t("lightMode"),
+}));
+
 let pageFlip = null;
 let objectUrls = [];
 let loadRequestId = 0;
-let availableBooks = [];
 let totalRealPages = 0;
 let currentRealPage = 1;
+let currentHintKey = "errorHint";
+let initialBookName = null;
 
 const params = new URLSearchParams(window.location.search);
-const initialBookName = getSafeBookName(params.get("book") || "sample.pdf");
-const initialTitle = params.get("title")?.trim() || fileNameToTitle(initialBookName);
+const requestedBook = params.get("book");
+let bootError = null;
+
+try {
+  if (requestedBook) {
+    initialBookName = getSafeBookName(requestedBook);
+  }
+} catch (error) {
+  bootError = error;
+}
 
 function updatePageTitle(bookName, customTitle) {
+  if (!bookName) {
+    elements.bookTitle.textContent = "Flipbook";
+    document.title = "Flipbook";
+    return;
+  }
+
   const title = customTitle?.trim() || fileNameToTitle(bookName);
   elements.bookTitle.textContent = title;
   document.title = `${title} — Flipbook`;
 }
 
-updatePageTitle(initialBookName, initialTitle);
+updatePageTitle(initialBookName, params.get("title"));
 applyLanguage();
 disableNavigation(true);
-loadAvailableBooks();
 
-async function loadAvailableBooks() {
-  try {
-    const response = await fetch("./books/books.json", { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(t("missingBookList"));
-    }
-
-    const data = await response.json();
-    availableBooks = Array.isArray(data.books) ? data.books : [];
-  } catch (error) {
-    console.warn("Não foi possível carregar a lista de livros automaticamente:", error);
-    availableBooks = [{ file: initialBookName, title: fileNameToTitle(initialBookName) }];
+if (initialBookName) {
+  loadBook(initialBookName);
+} else {
+  elements.loading.hidden = true;
+  if (bootError) {
+    showError(normalizeError(bootError));
+  } else {
+    showMissingBook();
   }
-
-  const options = availableBooks.map((book) => ({
-    value: book.file,
-    label: book.title || fileNameToTitle(book.file),
-  }));
-
-  const currentValue = initialBookName;
-  const values = new Set(options.map((item) => item.value));
-
-  if (!values.has(currentValue) && initialBookName) {
-    options.unshift({ value: initialBookName, label: fileNameToTitle(initialBookName) });
-  }
-
-  elements.bookSelect.innerHTML = options
-    .map(
-      (item) =>
-        `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`
-    )
-    .join("");
-
-  elements.bookSelect.value = currentValue;
-  elements.bookSelect.disabled = options.length <= 1;
-
-  elements.bookSelect.onchange = (event) => {
-    const nextBook = event.target.value;
-    if (!nextBook) return;
-
-    const nextUrl = new URL(window.location.href);
-    nextUrl.searchParams.set("book", nextBook);
-    nextUrl.searchParams.set("title", fileNameToTitle(nextBook));
-    window.location.href = nextUrl.toString();
-  };
-
-  loadBook(currentValue);
 }
 
 async function loadBook(bookFileName = initialBookName) {
@@ -203,6 +200,8 @@ async function loadBook(bookFileName = initialBookName) {
   const pdfUrl = `./books/${encodeURIComponent(bookName)}`;
   const requestId = ++loadRequestId;
 
+  currentHintKey = "errorHint";
+  elements.errorHint.innerHTML = t("errorHint");
   destroyFlipbook();
   updatePageTitle(bookName, title);
   elements.book.hidden = true;
@@ -509,8 +508,8 @@ elements.fullscreenButton.addEventListener("click", async () => {
 
 document.addEventListener("fullscreenchange", () => {
   elements.fullscreenButton.textContent = document.fullscreenElement
-    ? "Sair da tela cheia"
-    : "Tela cheia";
+    ? t("exitFullscreen")
+    : t("fullscreen");
 });
 
 document.addEventListener("keydown", (event) => {
@@ -559,6 +558,14 @@ function setLoading(percent, label) {
   elements.progressBar.style.width = `${normalized}%`;
   elements.loadingPercent.textContent = `${normalized}%`;
   elements.loadingLabel.textContent = label;
+}
+
+function showMissingBook() {
+  currentHintKey = "missingBookHint";
+  elements.errorTitle.textContent = t("missingBookTitle");
+  elements.errorHint.textContent = t("missingBookHint");
+  showError(t("missingBook"));
+  elements.statusText.textContent = "";
 }
 
 function showError(message) {
