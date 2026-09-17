@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -17,43 +17,50 @@
       <div class="book-info">
         <h1 id="book-title">Flipbook</h1>
         <label class="book-picker" for="book-select">
-          <span class="visually-hidden">Selecionar livro</span>
-          <select id="book-select" aria-label="Selecionar livro">
-            <option value="">Carregando livros…</option>
+          <span class="visually-hidden" data-i18n="selectBook">Select book</span>
+          <select id="book-select" aria-label="Select book">
+            <option value="">Loading books…</option>
           </select>
         </label>
-        <span id="status-text" class="status-text">Preparando…</span>
+        <label class="language-picker" for="language-select">
+          <span class="visually-hidden" data-i18n="language">Language</span>
+          <select id="language-select" aria-label="Language">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+          </select>
+        </label>
+        <span id="status-text" class="status-text">Preparing…</span>
       </div>
 
-      <div class="toolbar-actions" aria-label="Controles do livro">
-        <button id="first-button" class="icon-button" type="button" aria-label="Primeira página" title="Primeira página">
+      <div class="toolbar-actions" aria-label="Book controls" data-i18n-attr="aria-label:bookControls">
+        <button id="first-button" class="icon-button" type="button" aria-label="First page" title="First page">
           <span aria-hidden="true">⏮</span>
         </button>
 
-        <button id="prev-button" class="icon-button" type="button" aria-label="Página anterior" title="Página anterior">
+        <button id="prev-button" class="icon-button" type="button" aria-label="Previous page" title="Previous page">
           <span aria-hidden="true">←</span>
         </button>
 
         <span id="page-counter" class="page-counter" aria-live="polite">— / —</span>
 
-        <button id="next-button" class="icon-button" type="button" aria-label="Próxima página" title="Próxima página">
+        <button id="next-button" class="icon-button" type="button" aria-label="Next page" title="Next page">
           <span aria-hidden="true">→</span>
         </button>
 
-        <button id="last-button" class="icon-button" type="button" aria-label="Última página" title="Última página">
+        <button id="last-button" class="icon-button" type="button" aria-label="Last page" title="Last page">
           <span aria-hidden="true">⏭</span>
         </button>
 
         <button id="fullscreen-button" class="text-button" type="button">
-          Tela cheia
+          Fullscreen
         </button>
       </div>
     </header>
 
-    <section id="viewer" class="viewer" aria-label="Leitor de PDF">
+    <section id="viewer" class="viewer" aria-label="PDF reader" data-i18n-attr="aria-label:pdfReader">
       <div id="loading" class="loading" role="status" aria-live="polite">
         <div class="loading-line">
-          <span id="loading-label">Carregando PDF…</span>
+          <span id="loading-label">Loading PDF…</span>
           <span id="loading-percent">0%</span>
         </div>
         <div class="progress-track" aria-hidden="true">
@@ -64,17 +71,17 @@
       <div id="book" class="book" hidden></div>
 
       <div id="error-panel" class="error-panel" hidden>
-        <h2>Não foi possível abrir o livro.</h2>
+        <h2 data-i18n="openBookError">Unable to open the book.</h2>
         <p id="error-message"></p>
-        <p class="error-hint">
-          Confirme se o PDF está dentro da pasta <code>books/</code> e se o nome usado em
-          <code>?book=arquivo.pdf</code> está correto.
+        <p id="error-hint" class="error-hint">
+          Make sure the PDF is inside the <code>books/</code> folder and that the name used in
+          <code>?book=filename.pdf</code> is correct.
         </p>
       </div>
     </section>
 
     <footer class="footer">
-      <span>Arraste o canto da página, deslize no celular ou use as setas do teclado.</span>
+      <span data-i18n="footerHint">Drag the page corner, swipe on mobile, or use the keyboard arrows.</span>
     </footer>
   </main>
 </body>

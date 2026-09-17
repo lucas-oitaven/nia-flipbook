@@ -76,6 +76,20 @@ button {
   font-size: 13px;
 }
 
+.language-picker {
+  display: inline-flex;
+  align-items: center;
+}
+
+.language-picker select {
+  padding: 7px 8px;
+  border: 1px solid #c7c7c2;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #202020;
+  font-size: 13px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

@@ -14,6 +14,7 @@ const elements = {
   progressBar: document.querySelector("#progress-bar"),
   errorPanel: document.querySelector("#error-panel"),
   errorMessage: document.querySelector("#error-message"),
+  errorHint: document.querySelector("#error-hint"),
   firstButton: document.querySelector("#first-button"),
   prevButton: document.querySelector("#prev-button"),
   nextButton: document.querySelector("#next-button"),
@@ -21,7 +22,109 @@ const elements = {
   fullscreenButton: document.querySelector("#fullscreen-button"),
   pageCounter: document.querySelector("#page-counter"),
   bookSelect: document.querySelector("#book-select"),
+  languageSelect: document.querySelector("#language-select"),
 };
+
+const translations = {
+  en: {
+    selectBook: "Select book",
+    language: "Language",
+    bookControls: "Book controls",
+    firstPage: "First page",
+    previousPage: "Previous page",
+    nextPage: "Next page",
+    lastPage: "Last page",
+    fullscreen: "Fullscreen",
+    exitFullscreen: "Exit fullscreen",
+    pdfReader: "PDF reader",
+    openBookError: "Unable to open the book.",
+    errorHint: "Make sure the PDF is inside the <code>books/</code> folder and that the name used in <code>?book=filename.pdf</code> is correct.",
+    footerHint: "Drag the page corner, swipe on mobile, or use the keyboard arrows.",
+    preparing: "Preparing…",
+    openingPdf: "Opening PDF…",
+    downloadingPdf: "Downloading PDF…",
+    preparingPages: (current, total) => `Preparing pages… ${current}/${total}`,
+    assemblingBook: "Assembling book…",
+    ready: "Ready",
+    error: "Error",
+    pages: (count) => `${count} page${count === 1 ? "" : "s"}`,
+    missingFile: (name) => `The file "${name}" was not found.`,
+    invalidPdf: "The file found does not appear to be a valid PDF.",
+    invalidBookName: 'Invalid book name. Use only the PDF filename, for example "?book=my-book.pdf".',
+    missingBookList: "Book list unavailable",
+  },
+  es: {
+    selectBook: "Seleccionar libro",
+    language: "Idioma",
+    bookControls: "Controles del libro",
+    firstPage: "Primera página",
+    previousPage: "Página anterior",
+    nextPage: "Página siguiente",
+    lastPage: "Última página",
+    fullscreen: "Pantalla completa",
+    exitFullscreen: "Salir de pantalla completa",
+    pdfReader: "Lector de PDF",
+    openBookError: "No se pudo abrir el libro.",
+    errorHint: "Asegúrate de que el PDF esté dentro de la carpeta <code>books/</code> y que el nombre usado en <code>?book=archivo.pdf</code> sea correcto.",
+    footerHint: "Arrastra la esquina de la página, desliza en el móvil o usa las flechas del teclado.",
+    preparing: "Preparando…",
+    openingPdf: "Abriendo PDF…",
+    downloadingPdf: "Descargando PDF…",
+    preparingPages: (current, total) => `Preparando páginas… ${current}/${total}`,
+    assemblingBook: "Montando libro…",
+    ready: "Listo",
+    error: "Error",
+    pages: (count) => `${count} página${count === 1 ? "" : "s"}`,
+    missingFile: (name) => `No se encontró el archivo "${name}".`,
+    invalidPdf: "El archivo encontrado no parece ser un PDF válido.",
+    invalidBookName: 'Nombre de libro inválido. Usa solo el nombre del PDF, por ejemplo "?book=mi-libro.pdf".',
+    missingBookList: "Lista de libros no disponible",
+  },
+};
+
+let language = new URLSearchParams(window.location.search).get("lang") || localStorage.getItem("flipbook-language") || "en";
+if (!translations[language]) language = "en";
+
+function t(key, ...args) {
+  const value = translations[language][key];
+  return typeof value === "function" ? value(...args) : value;
+}
+
+function applyLanguage() {
+  document.documentElement.lang = language;
+  elements.languageSelect.value = language;
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-attr]").forEach((element) => {
+    const [attribute, key] = element.dataset.i18nAttr.split(":");
+    element.setAttribute(attribute, t(key));
+  });
+  elements.loadingLabel.textContent = t("preparing");
+  elements.statusText.textContent = totalRealPages ? t("pages", totalRealPages) : t("preparing");
+  elements.errorHint.innerHTML = t("errorHint");
+  elements.bookSelect.setAttribute("aria-label", t("selectBook"));
+  elements.languageSelect.setAttribute("aria-label", t("language"));
+  elements.firstButton.setAttribute("aria-label", t("firstPage"));
+  elements.firstButton.title = t("firstPage");
+  elements.prevButton.setAttribute("aria-label", t("previousPage"));
+  elements.prevButton.title = t("previousPage");
+  elements.nextButton.setAttribute("aria-label", t("nextPage"));
+  elements.nextButton.title = t("nextPage");
+  elements.lastButton.setAttribute("aria-label", t("lastPage"));
+  elements.lastButton.title = t("lastPage");
+  elements.fullscreenButton.textContent = document.fullscreenElement ? t("exitFullscreen") : t("fullscreen");
+  if (totalRealPages) elements.statusText.textContent = t("pages", totalRealPages);
+}
+
+elements.languageSelect.addEventListener("change", (event) => {
+  language = event.target.value;
+  localStorage.setItem("flipbook-language", language);
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.set("lang", language);
+  window.history.replaceState({}, "", nextUrl);
+  applyLanguage();
+});
 
 let pageFlip = null;
 let objectUrls = [];
@@ -41,6 +144,7 @@ function updatePageTitle(bookName, customTitle) {
 }
 
 updatePageTitle(initialBookName, initialTitle);
+applyLanguage();
 disableNavigation(true);
 loadAvailableBooks();
 
@@ -48,7 +152,7 @@ async function loadAvailableBooks() {
   try {
     const response = await fetch("./books/books.json", { cache: "no-store" });
     if (!response.ok) {
-      throw new Error("Lista de livros indisponível");
+      throw new Error(t("missingBookList"));
     }
 
     const data = await response.json();
@@ -104,7 +208,7 @@ async function loadBook(bookFileName = initialBookName) {
   elements.book.hidden = true;
 
   try {
-    setLoading(2, "Abrindo PDF…");
+    setLoading(2, t("openingPdf"));
 
     const loadingTask = pdfjsLib.getDocument({
       url: pdfUrl,
@@ -114,16 +218,16 @@ async function loadBook(bookFileName = initialBookName) {
     loadingTask.onProgress = ({ loaded, total }) => {
       if (!total) return;
       const downloadProgress = Math.min(30, Math.round((loaded / total) * 30));
-      setLoading(downloadProgress, "Baixando PDF…");
+      setLoading(downloadProgress, t("downloadingPdf"));
     };
 
     const pdf = await loadingTask.promise;
     if (requestId !== loadRequestId) return;
     if (!pdf.numPages) {
-      throw new Error("O PDF não contém páginas.");
+      throw new Error(language === "es" ? "El PDF no contiene páginas." : "The PDF has no pages.");
     }
 
-    elements.statusText.textContent = `${pdf.numPages} página${pdf.numPages === 1 ? "" : "s"}`;
+    elements.statusText.textContent = t("pages", pdf.numPages);
 
     const firstPage = await pdf.getPage(1);
     const firstViewport = firstPage.getViewport({ scale: 1 });
@@ -168,7 +272,7 @@ async function loadBook(bookFileName = initialBookName) {
       const renderProgress = 30 + Math.round((pageNumber / pdf.numPages) * 68);
       setLoading(
         renderProgress,
-        `Preparando páginas… ${pageNumber}/${pdf.numPages}`
+        t("preparingPages", pageNumber, pdf.numPages)
       );
 
       await letBrowserBreathe();
@@ -184,10 +288,10 @@ async function loadBook(bookFileName = initialBookName) {
     imageUrls.push(blankPage);
     objectUrls.push(blankPage);
 
-    setLoading(99, "Montando livro…");
+    setLoading(99, t("assemblingBook"));
     buildFlipbook(imageUrls, pageRatio);
     elements.book.hidden = false;
-    setLoading(100, "Pronto");
+    setLoading(100, t("ready"));
 
     elements.loading.hidden = true;
     disableNavigation(false);
@@ -463,7 +567,7 @@ function showError(message) {
   elements.book.hidden = true;
   elements.errorMessage.textContent = message;
   elements.errorPanel.hidden = false;
-  elements.statusText.textContent = "Erro";
+  elements.statusText.textContent = t("error");
 }
 
 function normalizeError(error) {
@@ -474,11 +578,11 @@ function normalizeError(error) {
     text.includes("Unexpected server response") ||
     text.includes("404")
   ) {
-    return `O arquivo "${bookName}" não foi encontrado.`;
+    return t("missingFile", initialBookName);
   }
 
   if (text.includes("Invalid PDF")) {
-    return "O arquivo encontrado não parece ser um PDF válido.";
+    return t("invalidPdf");
   }
 
   return text;
@@ -495,7 +599,7 @@ function getSafeBookName(value) {
     !name.toLowerCase().endsWith(".pdf")
   ) {
     throw new Error(
-      'Nome de livro inválido. Use apenas o nome do PDF, por exemplo "?book=meu-livro.pdf".'
+      t("invalidBookName")
     );
   }
 
