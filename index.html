@@ -16,10 +16,20 @@
     <header class="toolbar">
       <div class="book-info">
         <h1 id="book-title">Flipbook</h1>
+        <label class="book-picker" for="book-select">
+          <span class="visually-hidden">Selecionar livro</span>
+          <select id="book-select" aria-label="Selecionar livro">
+            <option value="">Carregando livros…</option>
+          </select>
+        </label>
         <span id="status-text" class="status-text">Preparando…</span>
       </div>
 
       <div class="toolbar-actions" aria-label="Controles do livro">
+        <button id="first-button" class="icon-button" type="button" aria-label="Primeira página" title="Primeira página">
+          <span aria-hidden="true">⏮</span>
+        </button>
+
         <button id="prev-button" class="icon-button" type="button" aria-label="Página anterior" title="Página anterior">
           <span aria-hidden="true">←</span>
         </button>
@@ -28,6 +38,10 @@
 
         <button id="next-button" class="icon-button" type="button" aria-label="Próxima página" title="Próxima página">
           <span aria-hidden="true">→</span>
+        </button>
+
+        <button id="last-button" class="icon-button" type="button" aria-label="Última página" title="Última página">
+          <span aria-hidden="true">⏭</span>
         </button>
 
         <button id="fullscreen-button" class="text-button" type="button">

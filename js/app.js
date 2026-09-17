@@ -14,27 +14,95 @@ const elements = {
   progressBar: document.querySelector("#progress-bar"),
   errorPanel: document.querySelector("#error-panel"),
   errorMessage: document.querySelector("#error-message"),
+  firstButton: document.querySelector("#first-button"),
   prevButton: document.querySelector("#prev-button"),
   nextButton: document.querySelector("#next-button"),
+  lastButton: document.querySelector("#last-button"),
   fullscreenButton: document.querySelector("#fullscreen-button"),
   pageCounter: document.querySelector("#page-counter"),
+  bookSelect: document.querySelector("#book-select"),
 };
 
 let pageFlip = null;
 let objectUrls = [];
+let loadRequestId = 0;
+let availableBooks = [];
+let totalRealPages = 0;
+let currentRealPage = 1;
 
 const params = new URLSearchParams(window.location.search);
-const bookName = getSafeBookName(params.get("book") || "sample.pdf");
-const title = params.get("title")?.trim() || fileNameToTitle(bookName);
-const pdfUrl = `./books/${encodeURIComponent(bookName)}`;
+const initialBookName = getSafeBookName(params.get("book") || "sample.pdf");
+const initialTitle = params.get("title")?.trim() || fileNameToTitle(initialBookName);
 
-elements.bookTitle.textContent = title;
-document.title = `${title} — Flipbook`;
+function updatePageTitle(bookName, customTitle) {
+  const title = customTitle?.trim() || fileNameToTitle(bookName);
+  elements.bookTitle.textContent = title;
+  document.title = `${title} — Flipbook`;
+}
 
+updatePageTitle(initialBookName, initialTitle);
 disableNavigation(true);
-loadBook();
+loadAvailableBooks();
 
-async function loadBook() {
+async function loadAvailableBooks() {
+  try {
+    const response = await fetch("./books/books.json", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Lista de livros indisponível");
+    }
+
+    const data = await response.json();
+    availableBooks = Array.isArray(data.books) ? data.books : [];
+  } catch (error) {
+    console.warn("Não foi possível carregar a lista de livros automaticamente:", error);
+    availableBooks = [{ file: initialBookName, title: fileNameToTitle(initialBookName) }];
+  }
+
+  const options = availableBooks.map((book) => ({
+    value: book.file,
+    label: book.title || fileNameToTitle(book.file),
+  }));
+
+  const currentValue = initialBookName;
+  const values = new Set(options.map((item) => item.value));
+
+  if (!values.has(currentValue) && initialBookName) {
+    options.unshift({ value: initialBookName, label: fileNameToTitle(initialBookName) });
+  }
+
+  elements.bookSelect.innerHTML = options
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+
+  elements.bookSelect.value = currentValue;
+  elements.bookSelect.disabled = options.length <= 1;
+
+  elements.bookSelect.onchange = (event) => {
+    const nextBook = event.target.value;
+    if (!nextBook) return;
+
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("book", nextBook);
+    nextUrl.searchParams.set("title", fileNameToTitle(nextBook));
+    window.location.href = nextUrl.toString();
+  };
+
+  loadBook(currentValue);
+}
+
+async function loadBook(bookFileName = initialBookName) {
+  const bookName = getSafeBookName(bookFileName);
+  const title = fileNameToTitle(bookName);
+  const pdfUrl = `./books/${encodeURIComponent(bookName)}`;
+  const requestId = ++loadRequestId;
+
+  destroyFlipbook();
+  updatePageTitle(bookName, title);
+  elements.book.hidden = true;
+
   try {
     setLoading(2, "Abrindo PDF…");
 
@@ -50,6 +118,7 @@ async function loadBook() {
     };
 
     const pdf = await loadingTask.promise;
+    if (requestId !== loadRequestId) return;
     if (!pdf.numPages) {
       throw new Error("O PDF não contém páginas.");
     }
@@ -87,6 +156,7 @@ async function loadBook() {
       }).promise;
 
       const blob = await canvasToBlob(canvas);
+      if (requestId !== loadRequestId) return;
       const objectUrl = URL.createObjectURL(blob);
       objectUrls.push(objectUrl);
       imageUrls.push(objectUrl);
@@ -104,18 +174,40 @@ async function loadBook() {
       await letBrowserBreathe();
     }
 
+    if (requestId !== loadRequestId) return;
+
+    totalRealPages = pdf.numPages;
+    currentRealPage = 1;
+
+    const blankPage = await createBlankPage(pageRatio);
+    imageUrls.unshift(blankPage);
+    imageUrls.push(blankPage);
+    objectUrls.push(blankPage);
+
     setLoading(99, "Montando livro…");
-    elements.book.hidden = false;
     buildFlipbook(imageUrls, pageRatio);
+    elements.book.hidden = false;
     setLoading(100, "Pronto");
 
     elements.loading.hidden = true;
     disableNavigation(false);
-    updateCounter(0);
+    updateCounter(pageFlip.getCurrentPageIndex());
   } catch (error) {
+    if (requestId !== loadRequestId) return;
     console.error(error);
     showError(normalizeError(error));
   }
+}
+
+function destroyFlipbook() {
+  if (pageFlip) {
+    pageFlip.destroy();
+    pageFlip = null;
+  }
+
+  elements.book.innerHTML = "";
+  objectUrls.forEach((url) => URL.revokeObjectURL(url));
+  objectUrls = [];
 }
 
 function buildFlipbook(imageUrls, pageRatio) {
@@ -132,19 +224,22 @@ function buildFlipbook(imageUrls, pageRatio) {
     maxHeight: Math.round(1100 * pageRatio),
     autoSize: true,
     drawShadow: true,
-    maxShadowOpacity: 0.32,
-    showCover: true,
-    usePortrait: true,
+    maxShadowOpacity: 0.18,
+    showCover: false,
+    usePortrait: false,
     mobileScrollSupport: true,
     useMouseEvents: true,
     swipeDistance: 30,
     flippingTime: 650,
-    disableFlipByClick: false,
+    disableFlipByClick: true,
+    clickEventForward: false,
   });
 
-  pageFlip.on("flip", (event) => {
-    updateCounter(Number(event.data));
+  pageFlip.on("flip", () => {
+    updateCounter(pageFlip.getCurrentPageIndex());
   });
+
+  window.pageFlip = pageFlip;
 
   pageFlip.on("changeOrientation", () => {
     updateCounter(pageFlip.getCurrentPageIndex());
@@ -153,29 +248,147 @@ function buildFlipbook(imageUrls, pageRatio) {
   pageFlip.loadFromImages(imageUrls);
 }
 
+function isLandscape() {
+  return pageFlip?.getOrientation() === "landscape";
+}
+
+function getSpreadStart(physicalIndex) {
+  if (!isLandscape()) return physicalIndex;
+  return physicalIndex - (physicalIndex % 2);
+}
+
+function physicalToRealPage(physicalIndex) {
+  if (!pageFlip || !totalRealPages) return 1;
+
+  const physicalPageCount = pageFlip.getPageCount();
+
+  if (physicalIndex <= 0) return 1;
+  if (physicalIndex >= physicalPageCount - 1) return totalRealPages;
+  return Math.max(1, Math.min(totalRealPages, physicalIndex));
+}
+
+function realToPhysicalPage(realPage) {
+  if (!pageFlip || !totalRealPages) return 1;
+  return Math.min(pageFlip.getPageCount() - 1, Math.max(1, realPage));
+}
+
+function getVisibleRealPages(physicalIndex) {
+  if (!pageFlip || !totalRealPages) return [1];
+
+  const physicalCount = pageFlip.getPageCount();
+  const start = getSpreadStart(Math.max(0, Math.min(physicalCount - 1, physicalIndex)));
+  const pages = [];
+
+  for (const physical of isLandscape() ? [start, start + 1] : [start]) {
+    if (physical <= 0 || physical >= physicalCount - 1) continue;
+    pages.push(Math.max(1, Math.min(totalRealPages, physical)));
+  }
+
+  return pages.length ? pages : [physicalToRealPage(physicalIndex)];
+}
+
+function isOnFirstSpread(physicalIndex = pageFlip.getCurrentPageIndex()) {
+  return getVisibleRealPages(physicalIndex).includes(1);
+}
+
+function isOnLastSpread(physicalIndex = pageFlip.getCurrentPageIndex()) {
+  return getVisibleRealPages(physicalIndex).includes(totalRealPages);
+}
+
 function updateCounter(pageIndex) {
-  if (!pageFlip) return;
+  if (!pageFlip || !totalRealPages) return;
 
-  const total = pageFlip.getPageCount();
-  const current = Math.min(total, Math.max(1, pageIndex + 1));
+  const physicalPageCount = pageFlip.getPageCount();
+  const physicalIndex = Math.max(0, Math.min(physicalPageCount - 1, pageIndex));
+  const visible = getVisibleRealPages(physicalIndex);
+  currentRealPage = visible[0];
 
-  elements.pageCounter.textContent = `${current} / ${total}`;
-  elements.prevButton.disabled = pageIndex <= 0;
-  elements.nextButton.disabled = pageIndex >= total - 1;
+  const label = visible.length === 2 ? `${visible[0]}–${visible[1]}` : `${visible[0]}`;
+  elements.pageCounter.textContent = `${label} / ${totalRealPages}`;
+
+  const onFirst = isOnFirstSpread(physicalIndex);
+  const onLast = isOnLastSpread(physicalIndex);
+  elements.prevButton.disabled = onFirst;
+  elements.firstButton.disabled = onFirst;
+  elements.nextButton.disabled = onLast;
+  elements.lastButton.disabled = onLast;
+}
+
+async function createBlankPage(pageRatio) {
+  const canvas = document.createElement("canvas");
+  const width = 1200;
+  const height = Math.round(width * pageRatio);
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+
+  const blob = await canvasToBlob(canvas);
+  return URL.createObjectURL(blob);
+}
+
+function flipToPhysical(targetPhysical) {
+  const current = pageFlip.getCurrentPageIndex();
+  if (getSpreadStart(current) === getSpreadStart(targetPhysical)) {
+    updateCounter(current);
+    return;
+  }
+
+  pageFlip.flip(targetPhysical, "bottom");
+}
+
+function goToPage(pageNumber) {
+  if (!pageFlip || !totalRealPages) return;
+
+  const targetReal = Math.min(totalRealPages, Math.max(1, pageNumber));
+  flipToPhysical(realToPhysicalPage(targetReal));
+}
+
+function navigateByOffset(offset) {
+  if (!pageFlip || !totalRealPages) return;
+
+  if (offset > 0) {
+    if (isOnLastSpread()) {
+      updateCounter(pageFlip.getCurrentPageIndex());
+      return;
+    }
+    pageFlip.flipNext("bottom");
+    return;
+  }
+
+  if (isOnFirstSpread()) {
+    updateCounter(pageFlip.getCurrentPageIndex());
+    return;
+  }
+
+  pageFlip.flipPrev("bottom");
 }
 
 function disableNavigation(disabled) {
+  elements.firstButton.disabled = disabled;
   elements.prevButton.disabled = disabled;
   elements.nextButton.disabled = disabled;
+  elements.lastButton.disabled = disabled;
   elements.fullscreenButton.disabled = disabled;
 }
 
+elements.firstButton.addEventListener("click", () => {
+  goToPage(1);
+});
+
 elements.prevButton.addEventListener("click", () => {
-  pageFlip?.flipPrev("top");
+  navigateByOffset(-1);
 });
 
 elements.nextButton.addEventListener("click", () => {
-  pageFlip?.flipNext("top");
+  navigateByOffset(1);
+});
+
+elements.lastButton.addEventListener("click", () => {
+  if (!pageFlip || !totalRealPages) return;
+  goToPage(totalRealPages);
 });
 
 elements.fullscreenButton.addEventListener("click", async () => {
@@ -201,25 +414,22 @@ document.addEventListener("keydown", (event) => {
 
   if (event.key === "ArrowLeft") {
     event.preventDefault();
-    pageFlip.flipPrev("top");
+    navigateByOffset(-1);
   }
 
   if (event.key === "ArrowRight") {
     event.preventDefault();
-    pageFlip.flipNext("top");
+    navigateByOffset(1);
   }
 
   if (event.key === "Home") {
     event.preventDefault();
-    pageFlip.turnToPage(0);
-    updateCounter(0);
+    goToPage(1);
   }
 
   if (event.key === "End") {
     event.preventDefault();
-    const lastPage = pageFlip.getPageCount() - 1;
-    pageFlip.turnToPage(lastPage);
-    updateCounter(lastPage);
+    goToPage(totalRealPages);
   }
 });
 
@@ -275,7 +485,7 @@ function normalizeError(error) {
 }
 
 function getSafeBookName(value) {
-  const name = value.trim();
+  const name = (value || "").trim();
 
   if (
     !name ||
@@ -290,6 +500,15 @@ function getSafeBookName(value) {
   }
 
   return name;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function fileNameToTitle(fileName) {
