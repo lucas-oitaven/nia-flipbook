@@ -121,7 +121,7 @@ function applyLanguage() {
   elements.nextButton.title = t("nextPage");
   elements.lastButton.setAttribute("aria-label", t("lastPage"));
   elements.lastButton.title = t("lastPage");
-  elements.fullscreenButton.textContent = document.fullscreenElement ? t("exitFullscreen") : t("fullscreen");
+  elements.fullscreenButton.textContent = isFullscreenActive() ? t("exitFullscreen") : t("fullscreen");
   if (totalRealPages) {
     elements.statusText.textContent = t("pages", totalRealPages);
   } else if (!elements.errorPanel.hidden && currentHintKey === "missingBookHint") {
@@ -154,6 +154,7 @@ let totalRealPages = 0;
 let currentRealPage = 1;
 let currentHintKey = "errorHint";
 let initialBookName = null;
+let cssFullscreen = false;
 
 const params = new URLSearchParams(window.location.search);
 const requestedBook = params.get("book");
@@ -294,6 +295,7 @@ async function loadBook(bookFileName = initialBookName) {
 
     elements.loading.hidden = true;
     disableNavigation(false);
+    requestBookReflow();
     updateCounter(pageFlip.getCurrentPageIndex());
   } catch (error) {
     if (requestId !== loadRequestId) return;
@@ -314,17 +316,17 @@ function destroyFlipbook() {
 }
 
 function buildFlipbook(imageUrls, pageRatio) {
-  const baseWidth = 700;
-  const baseHeight = Math.max(700, Math.round(baseWidth * pageRatio));
+  const baseWidth = 1000;
+  const baseHeight = Math.max(1, Math.round(baseWidth * pageRatio));
 
   pageFlip = new St.PageFlip(elements.book, {
     width: baseWidth,
     height: baseHeight,
     size: "stretch",
-    minWidth: 240,
-    maxWidth: 1100,
-    minHeight: Math.round(240 * pageRatio),
-    maxHeight: Math.round(1100 * pageRatio),
+    minWidth: 80,
+    maxWidth: 4000,
+    minHeight: Math.max(80, Math.round(80 * pageRatio)),
+    maxHeight: 4000,
     autoSize: true,
     drawShadow: true,
     maxShadowOpacity: 0.18,
@@ -494,25 +496,137 @@ elements.lastButton.addEventListener("click", () => {
   goToPage(totalRealPages);
 });
 
-elements.fullscreenButton.addEventListener("click", async () => {
-  try {
-    if (!document.fullscreenElement) {
-      await elements.viewer.requestFullscreen();
-    } else {
-      await document.exitFullscreen();
+function getNativeFullscreenElement() {
+  return (
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.mozFullScreenElement ||
+    document.msFullscreenElement ||
+    null
+  );
+}
+
+function isFullscreenActive() {
+  return Boolean(getNativeFullscreenElement()) || cssFullscreen;
+}
+
+function getFullscreenRequest(element) {
+  return (
+    element.requestFullscreen ||
+    element.webkitRequestFullscreen ||
+    element.webkitRequestFullScreen ||
+    element.mozRequestFullScreen ||
+    element.msRequestFullscreen ||
+    null
+  );
+}
+
+function getFullscreenExit() {
+  return (
+    document.exitFullscreen ||
+    document.webkitExitFullscreen ||
+    document.webkitCancelFullScreen ||
+    document.mozCancelFullScreen ||
+    document.msExitFullscreen ||
+    null
+  );
+}
+
+function toPromise(result) {
+  return result && typeof result.then === "function" ? result : Promise.resolve(result);
+}
+
+function syncFullscreenUi() {
+  document.documentElement.classList.toggle("is-app-fullscreen", isFullscreenActive());
+  elements.fullscreenButton.textContent = isFullscreenActive()
+    ? t("exitFullscreen")
+    : t("fullscreen");
+  requestBookReflow();
+}
+
+async function enterFullscreen() {
+  const targets = [document.documentElement, document.body, elements.viewer];
+
+  for (const target of targets) {
+    const request = getFullscreenRequest(target);
+    if (!request) continue;
+
+    try {
+      await toPromise(request.call(target));
+      cssFullscreen = false;
+      syncFullscreenUi();
+      return;
+    } catch (error) {
+      // iOS and some mobile browsers reject the native API.
     }
-  } catch (error) {
-    console.warn("Tela cheia não disponível:", error);
+  }
+
+  cssFullscreen = true;
+  syncFullscreenUi();
+}
+
+async function exitFullscreen() {
+  cssFullscreen = false;
+  const exit = getFullscreenExit();
+  if (exit && getNativeFullscreenElement()) {
+    try {
+      await toPromise(exit.call(document));
+    } catch (error) {
+      // Keep the CSS fallback in sync even if the native exit fails.
+    }
+  }
+  syncFullscreenUi();
+}
+
+elements.fullscreenButton.addEventListener("click", async () => {
+  if (isFullscreenActive()) {
+    await exitFullscreen();
+    return;
+  }
+
+  await enterFullscreen();
+});
+
+["fullscreenchange", "webkitfullscreenchange", "mozfullscreenchange", "MSFullscreenChange"].forEach(
+  (eventName) => {
+    document.addEventListener(eventName, () => {
+      if (getNativeFullscreenElement()) {
+        cssFullscreen = false;
+      }
+      syncFullscreenUi();
+    });
+  }
+);
+
+let bookReflowTimer = 0;
+
+function requestBookReflow() {
+  window.clearTimeout(bookReflowTimer);
+  bookReflowTimer = window.setTimeout(() => {
+    window.dispatchEvent(new Event("resize"));
+  }, 40);
+}
+
+const viewerResizeObserver = new ResizeObserver(() => {
+  if (!pageFlip || elements.book.hidden) return;
+  requestBookReflow();
+});
+
+viewerResizeObserver.observe(elements.viewer);
+
+window.visualViewport?.addEventListener("resize", () => {
+  if (isFullscreenActive() || pageFlip) {
+    requestBookReflow();
   }
 });
 
-document.addEventListener("fullscreenchange", () => {
-  elements.fullscreenButton.textContent = document.fullscreenElement
-    ? t("exitFullscreen")
-    : t("fullscreen");
-});
-
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && cssFullscreen) {
+    event.preventDefault();
+    exitFullscreen();
+    return;
+  }
+
   if (!pageFlip) return;
 
   if (event.key === "ArrowLeft") {
