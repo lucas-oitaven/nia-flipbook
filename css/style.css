@@ -367,6 +367,7 @@ a.text-button {
   height: 100%;
   left: 0;
   top: 0;
+  background: transparent;
 }
 
 .stf__block {

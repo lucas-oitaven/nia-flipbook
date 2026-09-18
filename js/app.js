@@ -295,7 +295,8 @@ async function loadBook(bookFileName = initialBookName) {
 
     elements.loading.hidden = true;
     disableNavigation(false);
-    requestBookReflow();
+    lastViewerSize = "";
+    requestBookReflow(true);
     updateCounter(pageFlip.getCurrentPageIndex());
   } catch (error) {
     if (requestId !== loadRequestId) return;
@@ -351,6 +352,48 @@ function buildFlipbook(imageUrls, pageRatio) {
   });
 
   pageFlip.loadFromImages(imageUrls);
+  patchCanvasBackground();
+}
+
+function patchCanvasBackground() {
+  const canvas = elements.book.querySelector("canvas");
+  if (!canvas) return;
+
+  const context = canvas.getContext("2d");
+  if (context.__fitBackground) return;
+  context.__fitBackground = true;
+
+  const fillRect = context.fillRect.bind(context);
+  context.fillRect = function (x, y, width, height) {
+    const fullClear =
+      x === 0 &&
+      y === 0 &&
+      width === canvas.width &&
+      height === canvas.height &&
+      isWhiteFill(this.fillStyle);
+
+    if (fullClear) {
+      const previous = this.fillStyle;
+      this.fillStyle = getViewerBackground();
+      fillRect(x, y, width, height);
+      this.fillStyle = previous;
+      return;
+    }
+
+    fillRect(x, y, width, height);
+  };
+}
+
+function isWhiteFill(value) {
+  const color = String(value).replace(/\s+/g, "").toLowerCase();
+  return color === "white" || color === "#fff" || color === "#ffffff" || color === "rgb(255,255,255)";
+}
+
+function getViewerBackground() {
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue("--bg-viewer").trim() ||
+    "#0e0e0d"
+  );
 }
 
 function isLandscape() {
@@ -365,10 +408,9 @@ function getSpreadStart(physicalIndex) {
 function physicalToRealPage(physicalIndex) {
   if (!pageFlip || !totalRealPages) return 1;
 
-  const physicalPageCount = pageFlip.getPageCount();
-
+  const lastPhysical = pageFlip.getPageCount() - 1;
   if (physicalIndex <= 0) return 1;
-  if (physicalIndex >= physicalPageCount - 1) return totalRealPages;
+  if (physicalIndex >= lastPhysical) return totalRealPages;
   return Math.max(1, Math.min(totalRealPages, physicalIndex));
 }
 
@@ -380,12 +422,12 @@ function realToPhysicalPage(realPage) {
 function getVisibleRealPages(physicalIndex) {
   if (!pageFlip || !totalRealPages) return [1];
 
-  const physicalCount = pageFlip.getPageCount();
-  const start = getSpreadStart(Math.max(0, Math.min(physicalCount - 1, physicalIndex)));
+  const lastPhysical = pageFlip.getPageCount() - 1;
+  const start = getSpreadStart(Math.max(0, Math.min(lastPhysical, physicalIndex)));
   const pages = [];
 
   for (const physical of isLandscape() ? [start, start + 1] : [start]) {
-    if (physical <= 0 || physical >= physicalCount - 1) continue;
+    if (physical <= 0 || physical >= lastPhysical) continue;
     pages.push(Math.max(1, Math.min(totalRealPages, physical)));
   }
 
@@ -393,11 +435,11 @@ function getVisibleRealPages(physicalIndex) {
 }
 
 function isOnFirstSpread(physicalIndex = pageFlip.getCurrentPageIndex()) {
-  return getVisibleRealPages(physicalIndex).includes(1);
+  return getSpreadStart(physicalIndex) === 0;
 }
 
 function isOnLastSpread(physicalIndex = pageFlip.getCurrentPageIndex()) {
-  return getVisibleRealPages(physicalIndex).includes(totalRealPages);
+  return getSpreadStart(physicalIndex) >= getSpreadStart(pageFlip.getPageCount() - 1);
 }
 
 function updateCounter(pageIndex) {
@@ -427,11 +469,25 @@ async function createBlankPage(pageRatio) {
   canvas.height = height;
 
   const context = canvas.getContext("2d");
-  context.fillStyle = "#ffffff";
+  const viewerColor = getComputedStyle(document.documentElement)
+    .getPropertyValue("--bg-viewer")
+    .trim();
+  context.fillStyle = viewerColor || "#0e0e0d";
   context.fillRect(0, 0, width, height);
 
   const blob = await canvasToBlob(canvas);
   return URL.createObjectURL(blob);
+}
+
+function withProgrammaticFlip(action) {
+  const settings = pageFlip.getSettings();
+  const previous = settings.disableFlipByClick;
+  settings.disableFlipByClick = false;
+  try {
+    action();
+  } finally {
+    settings.disableFlipByClick = previous;
+  }
 }
 
 function flipToPhysical(targetPhysical) {
@@ -441,7 +497,9 @@ function flipToPhysical(targetPhysical) {
     return;
   }
 
-  pageFlip.flip(targetPhysical, "bottom");
+  withProgrammaticFlip(() => {
+    pageFlip.flip(targetPhysical, "bottom");
+  });
 }
 
 function goToPage(pageNumber) {
@@ -454,21 +512,27 @@ function goToPage(pageNumber) {
 function navigateByOffset(offset) {
   if (!pageFlip || !totalRealPages) return;
 
+  const current = pageFlip.getCurrentPageIndex();
+
   if (offset > 0) {
-    if (isOnLastSpread()) {
-      updateCounter(pageFlip.getCurrentPageIndex());
+    if (isOnLastSpread(current)) {
+      updateCounter(current);
       return;
     }
-    pageFlip.flipNext("bottom");
+    withProgrammaticFlip(() => {
+      pageFlip.flipNext("bottom");
+    });
     return;
   }
 
-  if (isOnFirstSpread()) {
-    updateCounter(pageFlip.getCurrentPageIndex());
+  if (isOnFirstSpread(current)) {
+    updateCounter(current);
     return;
   }
 
-  pageFlip.flipPrev("bottom");
+  withProgrammaticFlip(() => {
+    pageFlip.flipPrev("bottom");
+  });
 }
 
 function disableNavigation(disabled) {
@@ -599,25 +663,35 @@ elements.fullscreenButton.addEventListener("click", async () => {
 );
 
 let bookReflowTimer = 0;
+let lastViewerSize = "";
 
-function requestBookReflow() {
+function getViewerSizeKey() {
+  return `${elements.viewer.clientWidth}x${elements.viewer.clientHeight}`;
+}
+
+function requestBookReflow(force = false) {
+  if (!pageFlip || elements.book.hidden) return;
+  if (pageFlip.getState?.() === "flipping") return;
+
+  const sizeKey = getViewerSizeKey();
+  if (!force && sizeKey === lastViewerSize) return;
+  lastViewerSize = sizeKey;
+
   window.clearTimeout(bookReflowTimer);
   bookReflowTimer = window.setTimeout(() => {
+    if (pageFlip?.getState?.() === "flipping") return;
     window.dispatchEvent(new Event("resize"));
-  }, 40);
+  }, 80);
 }
 
 const viewerResizeObserver = new ResizeObserver(() => {
-  if (!pageFlip || elements.book.hidden) return;
   requestBookReflow();
 });
 
 viewerResizeObserver.observe(elements.viewer);
 
 window.visualViewport?.addEventListener("resize", () => {
-  if (isFullscreenActive() || pageFlip) {
-    requestBookReflow();
-  }
+  requestBookReflow();
 });
 
 document.addEventListener("keydown", (event) => {
